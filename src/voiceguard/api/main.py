@@ -546,6 +546,7 @@ def _explain_occlusion(
             occluded[int(i * seg_len) : int((i + 1) * seg_len)] = 0.0
             p = fake_logit(occluded)
             drops[i] = (base - p) if target_class == 1 else (p - base)
+            logger.info("FORENSICS DEBUG | segment=%s | base=%.5f | p=%.5f | drop=%.5f", i, base, p, drops[i])
         drops = np.maximum(drops, 0.0)
         if drops.max() > 0:
             drops = drops / drops.max()

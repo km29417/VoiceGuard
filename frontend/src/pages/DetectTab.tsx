@@ -11,6 +11,8 @@ import { generateReport } from '../services/forensicsService'
 import { addHistory } from '../services/history'
 import { ApiError } from '../config/apiConfig'
 
+const EMPTY_AUDIO_SEGMENTS: { start_s: number; end_s: number; importance: number }[] = []
+
 function ConfidenceGauge({ confidence, label }: { confidence: number; label: string }) {
   const pct = Math.round(confidence * 100)
   const color = label === 'fake' ? 'text-red-400' : 'text-green-400'
@@ -143,6 +145,253 @@ function AttributionView({
   )
 }
 
+function AudioWaveform({
+  file,
+  segments = EMPTY_AUDIO_SEGMENTS,
+}: {
+  file: File
+  segments?: { start_s: number; end_s: number; importance: number }[]
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let audioContext: AudioContext | null = null
+
+    const drawWaveform = async () => {
+      try {
+        audioContext = new AudioContext()
+        const buffer = await file.arrayBuffer()
+        const audio = await audioContext.decodeAudioData(buffer)
+
+        if (cancelled || !canvasRef.current) return
+
+        const canvas = canvasRef.current
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+
+        const data = audio.getChannelData(0)
+        const width = canvas.width
+        const height = canvas.height
+        const step = Math.ceil(data.length / width)
+
+        ctx.clearRect(0, 0, width, height)
+        // Highlight suspicious audio time segments
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.25)'
+
+        for (const segment of segments) {
+          const startX = Math.max(
+            0,
+            (segment.start_s / audio.duration) * width
+          )
+
+          const endX = Math.min(
+            width,
+            (segment.end_s / audio.duration) * width
+          )
+
+          if (endX > startX) {
+            ctx.fillRect(startX, 0, endX - startX, height)
+          }
+        }
+        ctx.fillStyle = '#22d3ee'
+
+        for (let x = 0; x < width; x++) {
+          let peak = 0
+
+          for (let i = 0; i < step; i++) {
+            peak = Math.max(peak, Math.abs(data[x * step + i] ?? 0))
+          }
+
+          const barHeight = Math.max(2, peak * height)
+          ctx.fillRect(x, (height - barHeight) / 2, 1, barHeight)
+        }
+      } catch (error) {
+        console.error('Waveform generation failed:', error)
+      } finally {
+        if (audioContext && audioContext.state !== 'closed') {
+          await audioContext.close()
+        }
+      }
+    }
+
+    drawWaveform()
+
+    return () => {
+      cancelled = true
+      if (audioContext && audioContext.state !== 'closed') {
+        void audioContext.close()
+      }
+    }
+  }, [file, segments])
+
+  return (
+    <div className="bg-gray-900 border border-cyan-500/20 rounded-xl p-4">
+      <p className="text-sm text-cyan-300 mb-3 font-medium">
+        Audio Waveform
+      </p>
+      <canvas
+        ref={canvasRef}
+        width={1000}
+        height={160}
+        className="w-full h-32"
+      />
+    </div>
+  )
+}
+function AudioSpectrogram({ file }: { file: File }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let audioContext: AudioContext | null = null
+
+    const draw = async () => {
+      try {
+        audioContext = new AudioContext()
+        const buffer = await file.arrayBuffer()
+        const audio = await audioContext.decodeAudioData(buffer)
+
+        if (cancelled || !canvasRef.current) return
+
+        const data = audio.getChannelData(0)
+        const canvas = canvasRef.current
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+
+        const width = canvas.width
+        const height = canvas.height
+        const size = 1024
+        const hop = 512
+        const half = size / 2
+
+        const real = new Float64Array(size)
+        const imag = new Float64Array(size)
+        const hann = new Float64Array(size)
+
+        for (let i = 0; i < size; i++) {
+          hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (size - 1)))
+        }
+
+        const image = ctx.createImageData(width, height)
+        const frames = Math.max(1, Math.floor((data.length - size) / hop) + 1)
+
+        for (let x = 0; x < width; x++) {
+          if (cancelled) return
+
+          const frame = Math.min(frames - 1, Math.floor((x / width) * frames))
+          const start = frame * hop
+
+          real.fill(0)
+          imag.fill(0)
+
+          for (let i = 0; i < size; i++) {
+            real[i] = (data[start + i] ?? 0) * hann[i]
+          }
+
+          // Bit-reversal permutation
+          let j = 0
+          for (let i = 1; i < size; i++) {
+            let bit = size >> 1
+            while (j & bit) {
+              j ^= bit
+              bit >>= 1
+            }
+            j ^= bit
+
+            if (i < j) {
+              ;[real[i], real[j]] = [real[j], real[i]]
+            }
+          }
+
+          // Radix-2 FFT
+          for (let len = 2; len <= size; len <<= 1) {
+            const angle = (-2 * Math.PI) / len
+            const wr = Math.cos(angle)
+            const wi = Math.sin(angle)
+
+            for (let i = 0; i < size; i += len) {
+              let ur = 1
+              let ui = 0
+
+              for (let k = 0; k < len / 2; k++) {
+                const even = i + k
+                const odd = even + len / 2
+
+                const tr = ur * real[odd] - ui * imag[odd]
+                const ti = ur * imag[odd] + ui * real[odd]
+
+                real[odd] = real[even] - tr
+                imag[odd] = imag[even] - ti
+                real[even] += tr
+                imag[even] += ti
+
+                const nextUr = ur * wr - ui * wi
+                ui = ur * wi + ui * wr
+                ur = nextUr
+              }
+            }
+          }
+
+          for (let y = 0; y < height; y++) {
+            const bin = Math.min(half - 1, Math.max(1,
+              Math.floor((1 - y / height) * half)
+            ))
+
+            const magnitude = Math.sqrt(
+              real[bin] ** 2 + imag[bin] ** 2
+            ) / size
+
+            const intensity = Math.max(
+              0,
+              Math.min(255, (20 * Math.log10(magnitude + 1e-7) + 100) * 3)
+            )
+
+            const p = (y * width + x) * 4
+            image.data[p] = Math.min(255, intensity * 0.7)
+            image.data[p + 1] = Math.min(255, intensity * 0.35)
+            image.data[p + 2] = Math.min(255, 80 + intensity * 0.8)
+            image.data[p + 3] = 255
+          }
+        }
+
+        if (!cancelled) ctx.putImageData(image, 0, 0)
+      } catch (error) {
+        console.error('Spectrogram generation failed:', error)
+      } finally {
+        if (audioContext && audioContext.state !== 'closed') {
+          await audioContext.close()
+        }
+      }
+    }
+
+    void draw()
+
+    return () => {
+      cancelled = true
+      if (audioContext && audioContext.state !== 'closed') {
+        void audioContext.close()
+      }
+    }
+  }, [file])
+
+  return (
+    <div className="bg-gray-900 border border-purple-500/20 rounded-xl p-4">
+      <p className="text-sm text-purple-300 mb-3 font-medium">
+        Audio Spectrogram
+      </p>
+      <canvas
+        ref={canvasRef}
+        width={1000}
+        height={240}
+        className="w-full h-48"
+      />
+      <p className="text-xs text-gray-500 mt-2">
+        Frequency intensity over time
+      </p>
+    </div>
+  )
+}
 export default function DetectTab() {
   const [file, setFile] = useState<File | null>(null)
   const [result, setResult] = useState<DetectionResult | null>(null)
@@ -244,6 +493,13 @@ export default function DetectTab() {
         )}
       </div>
 
+      {file && (
+  <AudioWaveform
+    file={file}
+    segments={result?.explanation?.top_segments ?? []}
+  />
+)}
+      {file && <AudioSpectrogram file={file} />}
       {/* Model picker */}
       <div className="space-y-1">
         <label className="text-sm text-gray-400">Detector model</label>

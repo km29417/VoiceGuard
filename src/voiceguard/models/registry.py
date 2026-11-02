@@ -162,8 +162,8 @@ _REGISTRY_DEF: dict[str, dict] = {
     # Default working detector when the production v9c SSL checkpoint is absent —
     # it genuinely separates real speech from TTS / voice clones.
     "wav2vec2_spoof": {
-        "hub": "alexandreacff/wav2vec2-large-ft-fake-detection",
-        "loader": _load_hf_spoof("alexandreacff/wav2vec2-large-ft-fake-detection"),
+        "hub": "Hemgg/Deepfake-audio-detection",
+        "loader": _load_hf_spoof("Hemgg/Deepfake-audio-detection"),
     },
     "dsfnet": {"env": "DSFNET_MODEL_PATH", "loader": _load_dsfnet, "discover": "dsfnet"},
     "dsfnet_v2": {

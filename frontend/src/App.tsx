@@ -26,11 +26,11 @@ export default function App() {
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">VG</span>
+              <span className="text-white font-bold text-sm">RA</span>
             </div>
-            <span className="text-white font-semibold text-lg">VoiceGuard</span>
+            <span className="text-white font-semibold text-lg">Reveal AI</span>
             <span className="text-gray-500 text-sm hidden sm:block">
-              Real-time Voice Deepfake Detection
+              AI-Powered Voice Security & Intelligence
             </span>
           </div>
           <div className="flex items-center gap-3">

@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 # Default anti-spoofing model. Labels are 'real' / 'fake'.
-DEFAULT_MODEL_ID = "alexandreacff/wav2vec2-large-ft-fake-detection"
+DEFAULT_MODEL_ID = "Hemgg/Deepfake-audio-detection"
 
 
 def _norm_label(raw: str) -> str:
