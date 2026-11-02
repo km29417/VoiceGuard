@@ -39,7 +39,7 @@ dependencies = [
   "python-multipart>=0.0.6",
   "python-jose[cryptography]>=3.3.0",
   "slowapi>=0.1.9",
-  "pydantic>=2.5.0",
+  "pydantic>=2.14.2",
   "pydantic-settings>=2.1.0",
   "httpx>=0.26.0",
   # XAI
